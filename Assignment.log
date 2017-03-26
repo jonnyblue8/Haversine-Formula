@@ -1,0 +1,303 @@
+#PART1
+import pandas as pd
+import numpy as np
+import time
+from math import radians, sin, cos, asin, sqrt, pi, atan2
+
+earth_radius_km = 6371 # Radius of the Earth in kilometers
+
+# Importing Files (Please ensure pointers point to correct file locations)
+planting_input = 'planting_sample_data.csv'
+harvest_input = 'harvest_sample_data.csv'
+
+# Association Function
+def association(planting,harvest):
+	planting = pd.read_csv(planting)
+	harvest = pd.read_csv(harvest)
+
+	# Haversine Formula	
+	def haversine(point1, point2):
+		dlat = np.radians(point2[:,0]) - radians(point1[0])
+		dlon = np.radians(point2[:,1]) - radians(point1[1])
+		a = np.square(np.sin(dlat/2.0)) + cos(radians(point1[0])) * np.cos(np.radians(point2[:,0])) * np.square(np.sin(dlon/2.0))
+		great_circle_distance = 2 * np.arcsin(np.minimum(np.sqrt(a), np.repeat(1, len(a))))
+		d = earth_radius_km * great_circle_distance
+		return np.argmin(d)
+		
+	plan = np.column_stack((np.array(planting.lat),np.array(planting.long)))
+	harv = np.column_stack((np.array(harvest.lat),np.array(harvest.long)))
+
+	# Finding Nearest Neigbour 	
+	output = pd.DataFrame([])
+	for i in range(len(harv)):
+		clo = haversine(harv[i],plan) 
+		tmp = pd.DataFrame([[planting.variety[clo],planting.seeding_rate[clo],planting.seed_spacing[clo]]],columns=list(['variety','seeding_rate','seed_spacing']))
+		output = output.append(tmp,ignore_index=True)
+
+	# Concatenate Result to Harvest Dataframe
+	final = pd.concat([harvest, output], axis=1)
+
+	# Export Dataframe to csv
+	final.to_csv('Harvest_Cleaned.csv', sep=',')
+
+# Call Function	& Time
+start = time.clock()
+association(planting_input,harvest_input)
+elapsed = time.clock()
+elapsed = elapsed - start
+print 'Total time elapsed =', elapsed, 'seconds' 
+
+#PART2
+import matplotlib.pyplot as plt
+from scipy import stats
+from scipy.stats import linregress
+
+final = pd.read_csv('Harvest_Cleaned.csv')
+
+#Sort by variety
+var1 = final[final['variety'] == 'DKC63-33RIB']
+var2 = final[final['variety'] == 'P1498']
+
+# Variety count
+% matplotlib 
+var_count = final['variety'].value_counts()
+var_count.plot(kind='barh', stacked=True)
+plt.title('Variety Used Per Harvest Point')
+plt.ylabel('Type of Variety')
+plt.xlabel('Variety Used Count')
+plt.grid(True)
+figManager = plt.get_current_fig_manager()
+figManager.window.showMaximized()
+
+byvar = final.groupby('variety')
+desc = byvar['yield'].describe()
+plt.text(11500, 0.40, desc, fontsize=12)
+
+byvar = final.groupby('variety')
+desc1 = byvar['seed_spacing'].describe()
+plt.text(7000, 0.40, desc1, fontsize=12)
+
+byvar = final.groupby('variety')
+desc2 = byvar['seeding_rate'].describe()
+plt.text(2500, 0.40, desc2, fontsize=12)
+
+# Box Plot Yield By Type
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(121)
+plt.title('DKC63-33RIB')
+var1.boxplot('yield')
+plt.xlabel('Type of Variety')
+plt.ylabel('Yield (bushels/acre)')
+plt.grid(True)
+
+ax2 = fig1.add_subplot(122)
+plt.title('P1498')
+var2.boxplot('yield')
+plt.xlabel('Type of Variety')
+plt.ylabel('Yield (bushels/acre)')
+plt.grid(True)
+figManager = plt.get_current_fig_manager()
+figManager.window.showMaximized()
+
+# Historgrams
+fig1 = plt.figure()
+ax1 = fig1.add_subplot(121)
+plt.title('DKC63-33RIB')
+var1['yield'].hist(bins=50)
+plt.ylabel('Frequency/Number of Harvest Points')
+plt.xlabel('Yield (bushels/acre)')
+plt.grid(True)
+
+ax2 = fig1.add_subplot(122)
+plt.title('P1498')
+var2['yield'].hist(bins=50)
+plt.ylabel('Frequency/Number of Harvest Points')
+plt.xlabel('Yield (bushels/acre)')
+plt.grid(True)
+
+figManager = plt.get_current_fig_manager()
+figManager.window.showMaximized()
+
+# Yield vs Seeding Rate
+fig2 = plt.figure()
+ax1 = fig2.add_subplot(121)
+x1 = var1.ix[:,5]
+y1 = var1.ix[:,3]
+fit = np.polyfit(x1,y1,1)
+fit_fn = np.poly1d(fit) 
+plt.plot(x1,y1, 'ro', x1, fit_fn(x1), '--k')
+plt.xlim(0, 50)
+plt.title('DKC63-33RIB')
+plt.xlabel('Seeds Planted per Acre (in thousands)')
+plt.ylabel('Yield (bushels/acre)')
+plt.grid(True)
+slope, intercept, r_value, p_value, std_err = stats.linregress(x1,y1)
+tmp = 'correlation coefficient:', r_value
+plt.text(50, 380, tmp, fontsize=12,horizontalalignment='right',verticalalignment='top')
+
+ax1 = fig2.add_subplot(122)
+x2 = var2.ix[:,5]
+y2 = var2.ix[:,3]
+fit = np.polyfit(x2,y2,1)
+fit_fn = np.poly1d(fit) 
+plt.plot(x2,y2, 'go', x2, fit_fn(x2), '--k')
+plt.xlim(0, 50)
+plt.title('P1498')
+plt.xlabel('Seeds Planted per Acre (in thousands)')
+plt.ylabel('Yield (bushels/acre)')
+plt.grid(True)
+slope, intercept, r_value, p_value, std_err = stats.linregress(x2,y2)
+tmp = 'correlation coefficient:', r_value
+plt.text(50, 380, tmp, fontsize=12,horizontalalignment='right',verticalalignment='top')
+
+figManager = plt.get_current_fig_manager()
+figManager.window.showMaximized()
+
+# Yield vs Seeding Rate Without Outliers Within 3 Standard Deviations
+mean = var1['seeding_rate'].mean()
+std = var1['seeding_rate'].std()
+var3 = var1[var1['seeding_rate'] < mean + 3 * std]
+var3 = var3[var3['seeding_rate'] > mean - 3 * std]
+
+mean = var1['yield'].mean()
+std = var1['yield'].std()
+var3 = var1[var1['yield'] < mean + 3 * std]
+var3 = var3[var3['yield'] > mean - 3 * std]
+
+mean = var2['seeding_rate'].mean()
+std = var2['seeding_rate'].std()
+var4 = var2[var2['seeding_rate'] < mean + 3 * std]
+var4 = var4[var4['seeding_rate'] > mean - 3 * std]
+
+mean = var2['yield'].mean()
+std = var2['yield'].std()
+var4 = var2[var2['yield'] < mean + 3 * std]
+var4 = var4[var4['yield'] > mean - 3 * std]
+
+fig2 = plt.figure()
+ax1 = fig2.add_subplot(121)
+x1 = var3.ix[:,5]
+y1 = var3.ix[:,3]
+fit = np.polyfit(x1,y1,1)
+fit_fn = np.poly1d(fit) 
+plt.plot(x1,y1, 'ro', x1, fit_fn(x1), '--k')
+plt.xlim(20, 50)
+plt.ylim(100, 350)
+plt.title('DKC63-33RIB (Without Outliers)')
+plt.xlabel('Seeds Planted per Acre (in thousands)')
+plt.ylabel('Yield (bushels/acre)')
+plt.grid(True)
+slope, intercept, r_value, p_value, std_err = stats.linregress(x1,y1)
+tmp = 'correlation coefficient:', r_value
+plt.text(50, 345, tmp, fontsize=12,horizontalalignment='right',verticalalignment='top')
+
+ax1 = fig2.add_subplot(122)
+x2 = var4.ix[:,5]
+y2 = var4.ix[:,3]
+fit = np.polyfit(x2,y2,1)
+fit_fn = np.poly1d(fit) 
+plt.plot(x2,y2, 'go', x2, fit_fn(x2), '--k')
+plt.xlim(20, 50)
+plt.ylim(100, 350)
+plt.title('P1498 (Without Outliers)')
+plt.xlabel('Seeds Planted per Acre (in thousands)')
+plt.ylabel('Yield (bushels/acre)')
+plt.grid(True)
+slope, intercept, r_value, p_value, std_err = stats.linregress(x2,y2)
+tmp = 'correlation coefficient:', r_value
+plt.text(50, 345, tmp, fontsize=12,horizontalalignment='right',verticalalignment='top')
+
+figManager = plt.get_current_fig_manager()
+figManager.window.showMaximized()
+
+# Yield vs Seed Spacing
+fig3 = plt.figure()
+ax1 = fig3.add_subplot(121)
+x1 = var1.ix[:,6]
+y1 = var1.ix[:,3]
+fit = np.polyfit(x1,y1,1)
+fit_fn = np.poly1d(fit) 
+plt.plot(x1,y1, 'ro', x1, fit_fn(x1), '--k')
+plt.xlim(0, 50)
+plt.title('DKC63-33RIB')
+plt.xlabel('distance between seeds (inches)')
+plt.ylabel('Yield (bushels/acre)')
+plt.grid(True)
+slope, intercept, r_value, p_value, std_err = stats.linregress(x1,y1)
+tmp = 'correlation coefficient:', r_value
+plt.text(50, 380, tmp, fontsize=12,horizontalalignment='right',verticalalignment='top')
+
+ax1 = fig3.add_subplot(122)
+x2 = var2.ix[:,6]
+y2 = var2.ix[:,3]
+fit = np.polyfit(x2,y2,1)
+fit_fn = np.poly1d(fit) 
+plt.plot(x2,y2, 'go', x2, fit_fn(x2), '--k')
+plt.xlim(0, 50)
+plt.title('P1498')
+plt.xlabel(' distance between seeds (inches)')
+plt.ylabel('Yield (bushels/acre)')
+plt.grid(True)
+slope, intercept, r_value, p_value, std_err = stats.linregress(x2,y2)
+tmp = 'correlation coefficient:', r_value
+plt.text(50, 380, tmp, fontsize=12,horizontalalignment='right',verticalalignment='top')
+
+figManager = plt.get_current_fig_manager()
+figManager.window.showMaximized()
+
+# Yield vs Seed Spacing Without Outliers Within 3 Standard Deviations
+mean = var1['seed_spacing'].mean()
+std = var1['seed_spacing'].std()
+var5 = var1[var1['seed_spacing'] < mean + 3 * std]
+var5 = var5[var5['seed_spacing'] > mean - 3 * std]
+
+mean = var1['yield'].mean()
+std = var1['yield'].std()
+var5 = var1[var1['yield'] < mean + 3 * std]
+var5 = var5[var5['yield'] > mean - 3 * std]
+
+mean = var2['seed_spacing'].mean()
+std = var2['seed_spacing'].std()
+var6 = var2[var2['seed_spacing'] < mean + 3 * std]
+var6 = var6[var6['seed_spacing'] > mean - 3 * std]
+
+mean = var2['yield'].mean()
+std = var2['yield'].std()
+var6 = var2[var2['yield'] < mean + 3 * std]
+var6 = var6[var6['yield'] > mean - 3 * std]
+
+fig3 = plt.figure()
+ax1 = fig3.add_subplot(121)
+x1 = var5.ix[:,6]
+y1 = var5.ix[:,3]
+fit = np.polyfit(x1,y1,1)
+fit_fn = np.poly1d(fit) 
+plt.plot(x1,y1, 'ro', x1, fit_fn(x1), '--k')
+plt.xlim(4,8)
+plt.ylim(100,350)
+plt.title('DKC63-33RIB (Without Outliers)')
+plt.xlabel('distance between seeds (inches)')
+plt.ylabel('Yield (bushels/acre)')
+plt.grid(True)
+slope, intercept, r_value, p_value, std_err = stats.linregress(x1,y1)
+tmp = 'correlation coefficient:', r_value
+plt.text(8, 345, tmp, fontsize=12,horizontalalignment='right',verticalalignment='top')
+
+ax1 = fig3.add_subplot(122)
+x2 = var6.ix[:,6]
+y2 = var6.ix[:,3]
+fit = np.polyfit(x2,y2,1)
+fit_fn = np.poly1d(fit) 
+plt.plot(x2,y2, 'go', x2, fit_fn(x2), '--k')
+plt.xlim(4,8)
+plt.ylim(100,350)
+plt.title('P1498 (Without Outliers)')
+plt.xlabel(' distance between seeds (inches)')
+plt.ylabel('Yield (bushels/acre)')
+plt.grid(True)
+slope, intercept, r_value, p_value, std_err = stats.linregress(x2,y2)
+tmp = 'correlation coefficient:', r_value
+plt.text(8, 345, tmp, fontsize=12,horizontalalignment='right',verticalalignment='top')
+
+figManager = plt.get_current_fig_manager()
+figManager.window.showMaximized()
